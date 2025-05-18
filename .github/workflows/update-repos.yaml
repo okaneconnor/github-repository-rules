@@ -1,0 +1,60 @@
+name: Update Repositories List
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+jobs:
+  update-files:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+    
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.x'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyyaml requests
+    
+    - name: Run set_org_custom_properties script
+      env:
+        OAUTH_TOKEN: ${{ secrets.OAUTH_TOKEN }}
+      run: python custom-properties/set_org_custom_properties.py
+    
+    - name: Run update-repo-list script
+      run: python scripts/update-repo-list.py
+    
+    - name: Run update-readme script
+      run: python scripts/update-readme.py
+    
+    - name: Install jq
+      run: sudo apt-get install jq -y
+    
+    - name: List Repositories
+      run: |
+        echo "Listing Repositories"
+        for repo in $(jq -r '.[]' < ./production-repos.json); do
+          echo "Listing repository: $repo"
+          curl -H "Authorization: token ${{ secrets.OAUTH_TOKEN }}" \
+               -H "Accept: application/vnd.github.v3+json" \
+               https://api.github.com/repos/${ORGANIZATION_NAME}/$repo
+        done
+      shell: bash
+      continue-on-error: true
+    
+    - name: Commit and push changes
+      run: |
+        git config --global user.name '${REPLACE_GITHUB_USERNAME}'
+        git config --global user.email '${REPLACE_GITHUB_EMAIL}'
+        git add production-repos.json ReadMe.md
+        git commit -m 'Update repository list and readme'
+        git push
+      env:
+        GITHUB_TOKEN: ${{ secrets.OAUTH_TOKEN }}
